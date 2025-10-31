@@ -21,6 +21,7 @@
      (== f ...)
      (gen e ...)
      (esc e)
+     (as x ...)
      (>< f))
   ;; Flow values (normalised flows)
   (fv ::= (gen v ...))
@@ -34,23 +35,35 @@
      (>< F))
 
   #:binding-forms
-  (λ (x ...) e #:refers-to (shadow x ...)))
+  (λ (x ...) e #:refers-to (shadow x ...))
+  (as x ...) #:exports (shadow x ...)
+  (~> f #:...bind (env f (shadow env f))) #:exports env)
 
 (define-metafunction Qi
   β-reduce : (λ (x ..._1) e) e ..._1 -> e
-  [(β-reduce (λ (x ...) e) e_x ...) (substitute e [x e_x] ...)])
+  [(β-reduce (λ (x ...) e) e_x ...)
+   (substitute e [x e_x] ...)])
+
+(define-metafunction Qi
+  ;; Q-reduce : (gen v ..._1) (as x ..._1) f -> f
+  [(Q-reduce (gen v ...) (as x ...) f)
+   (substitute f [x v] ...)])
 
 ;; Floe reductions
 (define floe-reduce
   (reduction-relation
    Qi
    ;; Threading
-   (--> (in-hole F (~> (gen v ...) (esc v_1) f ...))
-        (in-hole F (~> (gen (v_1 v ...)) f ...))
-        thread-step)
    (--> (in-hole F (~> (gen v ...)))
         (in-hole F (gen v ...))
         thread-red)
+   (--> (in-hole F (~> fv f_1 f_2 f_3 ...))
+        (in-hole F (~> (~> fv f_1) f_2 f_3 ...))
+        thread-fold)
+   ;; Esc
+   (--> (in-hole F (~> (gen v ...) (esc v_1)))
+        (in-hole F (~> (gen (v_1 v ...))))
+        esc-red)
    ;; Tee
    (--> (in-hole F (~> (gen v ...) (-< f ...)))
         (in-hole F (-< (~> (gen v ...) f) ...))
@@ -73,6 +86,10 @@
    (--> (in-hole F (~> (gen v_1 ...) (gen v_2 ...)))
         (in-hole F (gen v_2 ...))
         gen-red)
+   ;; As
+   (--> (in-hole F (~> (gen v ...) (as x ...)))
+        (mf-apply Q-reduce (gen v ...) (as x ...) (in-hole F (gen)))
+        as-red)
 
    ;; Lambda calculus reductions
    (--> (in-hole F ((λ (x ...) e) v ...))
@@ -143,4 +160,9 @@
   (test-->
    floe-reduce
    (term (~> (gen 1 2 3) (gen 4)))
-   (term (gen 4))))
+   (term (gen 4)))
+
+  (test-->>
+   floe-reduce
+   (term (~> (gen 1 2 3) (as x y z) (gen z y x)))
+   (term (gen 3 2 1))))
